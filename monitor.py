@@ -5,25 +5,29 @@ import numpy as np
 import tkinter as tk # for obtaining monitor resolution
 import colorsys
 
-# --- constants ---
-PERIOD_MS = 250         # ms per clock cycle (one byte)
+# ---------------------------------------------------------------- constants
+PERIOD_MS = 256         # ms per clock cycle (one byte)
 CALIBRATE_MS = 5000     # all blocks on, lets the receiver find them
 LEAD_IN_MS = 2000       # black screen between calibration and data
 LEAD_OUT_MS = 3000      # black screen after the last byte
+BLOCK_VALUE = 0.78      # data block brightness 0-1; below 1.0 to stop the
+                        # camera sensor clipping, which destroys hue info
 BLOCK_SCALE = 0.09      # block size as a fraction of the screen's short edge
 BLOCK_GAP = 10          # extra clearance required between blocks, px
+FID_SCALE = 1.6         # corner fiducial size, relative to a block
+FID_INSET = 0.02        # fiducial distance from the screen edge, fraction
 IMG_PATH = "img/cobblestone.png"
 SEND_SIZE = (16, 16)    # (width, height) the image is downscaled to
 WINDOW = "Monitor"
-# -----------------
 
-def hue_bgr(h_opencv):
-    r, g, b = colorsys.hsv_to_rgb(h_opencv / 180.0, 1.0, 1.0)
+def hue_bgr(h_opencv, v=BLOCK_VALUE):
+    r, g, b = colorsys.hsv_to_rgb(h_opencv / 180.0, 1.0, v)
     return (int(b * 255), int(g * 255), int(r * 255))
 
-BLOCK_COLORS = [hue_bgr(h) for h in range(0, 180, 20)]
-# Put the clock on a more isolated hue than H=0, which wraps around to H=179
-BLOCK_COLORS[0], BLOCK_COLORS[4] = BLOCK_COLORS[4], BLOCK_COLORS[0]
+# Index 0 is the clock, kept pure white: it only ever needs luminance, so
+# letting it clip is harmless and makes it the easiest block to recover.
+# The eight data bits then get the whole hue circle at 22.5 degree spacing.
+BLOCK_COLORS = [(255, 255, 255)] + [hue_bgr(int(i * 180 / 8)) for i in range(8)]
 
 class block: 
     def __init__(self, xCoord, yCoord, bitNum, size, img, b, g, r):
@@ -66,12 +70,29 @@ class monitor: # Removed 'def'
         # Get img color
         BGR = cv2.mean(self.drawIMG)[:3]
         self.b, self.g, self.r = [int(x) for x in BGR]
+
+        # Four always-on white corner fiducials. The receiver fits a
+        # homography to these every frame, so it never has to search the
+        # background for the data blocks.
+        self.fidSize = int(self.blockSize * FID_SCALE)
+        inset = int(min(self.height, self.width) * FID_INSET) + self.fidSize // 2
+        self.fidCenters = [(inset, inset),
+                           (self.width - inset, inset),
+                           (self.width - inset, self.height - inset),
+                           (inset, self.height - inset)]
+        self.drawFiducials()
+
+        # Every block must sit wholly inside the fiducial quad, so the
+        # receiver can reject anything outside it.
+        edge = inset + self.fidSize // 2 + BLOCK_GAP + self.blockSize // 2
+        self.minX, self.maxX = edge, self.width - edge
+        self.minY, self.maxY = edge, self.height - edge
         
         # Generate nine randomly placed blocks, one being the clock
         self.blockList = [] 
         while True:
-            randX = random.randint(int(self.blockSize/2), int(self.width - self.blockSize))
-            randY = random.randint(int(self.blockSize/2), int(self.height - self.blockSize))
+            randX = random.randint(self.minX, self.maxX)
+            randY = random.randint(self.minY, self.maxY)
 
             # Make sure no blocks overlap
             overlapping = False
@@ -92,6 +113,12 @@ class monitor: # Removed 'def'
             # block list full
             if len(self.blockList) == 9:
                 break
+
+    def drawFiducials(self):
+        h = self.fidSize // 2
+        for cx, cy in self.fidCenters:
+            cv2.rectangle(self.drawIMG, (cx - h, cy - h), (cx + h, cy + h),
+                          (255, 255, 255), -1)
 
     def allOn(self):
         for b in self.blockList:
