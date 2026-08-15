@@ -12,7 +12,7 @@ LEAD_IN_MS = 2000       # black screen between calibration and data
 LEAD_OUT_MS = 3000      # black screen after the last byte
 BLOCK_SCALE = 0.09      # block size as a fraction of the screen's short edge
 BLOCK_GAP = 10          # extra clearance required between blocks, px
-IMG_PATH = "img/waterBucket.png"
+IMG_PATH = "img/cobblestone.png"
 SEND_SIZE = (16, 16)    # (width, height) the image is downscaled to
 WINDOW = "Monitor"
 # -----------------
