@@ -2,6 +2,28 @@ import random
 import cv2
 import time 
 import numpy as np 
+import tkinter as tk # for obtaining monitor resolution
+import colorsys
+
+# --- constants ---
+PERIOD_MS = 250         # ms per clock cycle (one byte)
+CALIBRATE_MS = 5000     # all blocks on, lets the receiver find them
+LEAD_IN_MS = 2000       # black screen between calibration and data
+LEAD_OUT_MS = 3000      # black screen after the last byte
+BLOCK_SCALE = 0.09      # block size as a fraction of the screen's short edge
+BLOCK_GAP = 10          # extra clearance required between blocks, px
+IMG_PATH = "img/waterBucket.png"
+SEND_SIZE = (16, 16)    # (width, height) the image is downscaled to
+WINDOW = "Monitor"
+# -----------------
+
+def hue_bgr(h_opencv):
+    r, g, b = colorsys.hsv_to_rgb(h_opencv / 180.0, 1.0, 1.0)
+    return (int(b * 255), int(g * 255), int(r * 255))
+
+BLOCK_COLORS = [hue_bgr(h) for h in range(0, 180, 20)]
+# Put the clock on a more isolated hue than H=0, which wraps around to H=179
+BLOCK_COLORS[0], BLOCK_COLORS[4] = BLOCK_COLORS[4], BLOCK_COLORS[0]
 
 class block: 
     def __init__(self, xCoord, yCoord, bitNum, size, img, b, g, r):
@@ -19,45 +41,27 @@ class block:
         self.btm_right = (int(self.x + self.size/2), int(self.y + self.size/2))
 
     def on(self):
-        match self.bitNum:
-            # clock
-            case 0:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (0, 255, 0), self.thickness) # Green
-            # byte
-            case 1:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (255, 0, 0), self.thickness) # Blue
-            case 2: 
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (0, 0, 255), self.thickness) # Red
-            case 3: 
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (0, 255, 255), self.thickness) # Yellow
-            case 4:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (255, 0, 255), self.thickness) # Magenta
-            case 5:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (255, 255, 0), self.thickness) # Cyan
-            case 6:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (255, 255, 255), self.thickness) # White
-            case 7:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (128, 128, 128), self.thickness) # Gray
-            case 8:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (0, 165, 255), self.thickness) # Orange
+        cv2.rectangle(self.img, self.top_left, self.btm_right,
+                      BLOCK_COLORS[self.bitNum], self.thickness)
 
     def off(self):
-        # All cases resolve to the same color in off state, simplified match statement
-        match self.bitNum:
-            case _:
-                cv2.rectangle(self.img, self.top_left, self.btm_right, (self.b, self.g, self.r), self.thickness) 
+        cv2.rectangle(self.img, self.top_left, self.btm_right,
+                      (self.b, self.g, self.r), self.thickness)
 
 class monitor: # Removed 'def'
     def __init__(self, img, imageToSend):
         # Numpy arrays use .shape, not cv2.CAP_PROP_FRAME_WIDTH
         self.height, self.width = img.shape[:2]
 
+        cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
         # Characteristics
-        self.blockSize = 30
+        self.blockSize = int(min(self.height, self.width) * BLOCK_SCALE)
         self.drawIMG = img
         self.sendIMG = imageToSend
 
-        self.period = int(30) # ms
+        self.period = int(PERIOD_MS) # ms
 
         # Get img color
         BGR = cv2.mean(self.drawIMG)[:3]
@@ -72,7 +76,7 @@ class monitor: # Removed 'def'
             # Make sure no blocks overlap
             overlapping = False
             for b in self.blockList: 
-                if abs(randX - b.x) <= (self.blockSize+10) and abs(randY - b.y) <= (self.blockSize + 10):
+                if abs(randX - b.x) <= (self.blockSize + BLOCK_GAP) and abs(randY - b.y) <= (self.blockSize + BLOCK_GAP):
                     overlapping = True
                     break
             
@@ -109,14 +113,14 @@ class monitor: # Removed 'def'
     def run(self):
         # Show receiver where every block is to calibrate
         self.allOn()
-        cv2.imshow("Monitor", self.drawIMG)
+        cv2.imshow(WINDOW, self.drawIMG)
         cv2.waitKey(1)
-        if self.hold(5000): return # 5 seconds to calibrate
+        if self.hold(CALIBRATE_MS): return
 
         self.allOff()
-        cv2.imshow("Monitor", self.drawIMG)
+        cv2.imshow(WINDOW, self.drawIMG)
         cv2.waitKey(1)
-        if self.hold(2000): return # 2 seconds of darkness before starting
+        if self.hold(LEAD_IN_MS): return
 
         # loop through image bytes
         loopHeight, loopWidth = self.sendIMG.shape
@@ -134,25 +138,34 @@ class monitor: # Removed 'def'
                     else:
                         self.blockList[bit_num].off()
                 
-                cv2.imshow("Monitor", self.drawIMG)
+                cv2.imshow(WINDOW, self.drawIMG)
                 cv2.waitKey(1)
                 
                 # Cycle clock
-                if cv2.waitKey(int(self.period/2)) & 0xFF == ord('q'): return
+                if self.hold(self.period/2): return
                 self.blockList[0].off()
-                cv2.imshow("Monitor", self.drawIMG)
+                cv2.imshow(WINDOW, self.drawIMG)
                 cv2.waitKey(1)
-                if cv2.waitKey(int(self.period/2)) & 0xFF == ord('q'): return
+                if self.hold(self.period/2): return
+        
+        self.allOff()
+        cv2.imshow(WINDOW, self.drawIMG)
+        cv2.waitKey(1)
+        self.hold(LEAD_OUT_MS)
             
             
 
 
 if __name__ == "__main__":
-    img = np.zeros((720, 1280, 3), dtype=np.uint8)
-    imgToSend = cv2.imread("img/waterBucket.png", cv2.IMREAD_GRAYSCALE)
+    _r = tk.Tk(); _r.withdraw()
+    SW, SH = _r.winfo_screenwidth(), _r.winfo_screenheight()
+    _r.destroy()
+
+    img = np.zeros((SH, SW, 3), dtype=np.uint8)
+    imgToSend = cv2.imread(IMG_PATH, cv2.IMREAD_GRAYSCALE)
 
     # Downscale the image, might look a little weird but makes the monitor more active
-    resized_img = cv2.resize(imgToSend, (16,16), interpolation=cv2.INTER_AREA)
+    resized_img = cv2.resize(imgToSend, SEND_SIZE, interpolation=cv2.INTER_AREA)
 
     myMonitor = monitor(img, resized_img)
     myMonitor.run()
