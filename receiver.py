@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import colorsys
 
+from decode import ByteDecoder
+
 ### --- constants ---
 VIDEO = "vid/test.mov"          # recording of the transmitter
 
@@ -240,6 +242,8 @@ idx, lost = 0, 0
 prev_fid = cal_quad
 rois = cal_rois
 writer = None
+decoder = ByteDecoder()
+
 while True:
     ok, frame = cap.read()
     if not ok:
@@ -259,6 +263,9 @@ while True:
     # read whether each block is currently lit
     lit = [patch(frame, r) @ LUMA > thresh[n] for n, r in enumerate(rois)]
 
+    #on clock ON switch, sample the 8 bits
+    byte = decoder.update(lit)
+
     # save an annotated copy of this frame to the debug video
     if DEBUG_VIDEO:
         vis = annotate(frame, rois, lit, quad)
@@ -276,3 +283,9 @@ if writer is not None:
 print(f"read {idx} frames")
 if lost:
     print(f"lost fiducial lock on {lost}/{idx} frames")
+
+if decoder.done():
+    path = decoder.save()
+    print(f"decoded image -> {path}")
+else:
+    print(f"incomplete, only {len(decoder.bytes)} / {decoder.area} bytes decoded")
