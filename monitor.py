@@ -96,19 +96,27 @@ class monitor: # Removed 'def'
     def allOff(self):
         for b in self.blockList:
             b.off()
+
+    def hold(self, ms):
+        end = time.time() + ms / 1000.0
+        while True:
+            remaining = end - time.time()
+            if remaining <= 0:
+                return False
+            if cv2.waitKey(max(1, int(remaining * 1000))) & 0xFF == ord('q'):
+                return True
         
     def run(self):
         # Show receiver where every block is to calibrate
         self.allOn()
-
         cv2.imshow("Monitor", self.drawIMG)
-        cv2.waitKey(1) 
-        if cv2.waitKey(5000) & 0xFF == ord('q'): return
-        
+        cv2.waitKey(1)
+        if self.hold(5000): return # 5 seconds to calibrate
+
         self.allOff()
         cv2.imshow("Monitor", self.drawIMG)
         cv2.waitKey(1)
-        if cv2.waitKey(5000) & 0xFF == ord('q'): return
+        if self.hold(2000): return # 2 seconds of darkness before starting
 
         # loop through image bytes
         loopHeight, loopWidth = self.sendIMG.shape
