@@ -5,7 +5,7 @@ import numpy as np
 import tkinter as tk # for obtaining monitor resolution
 import colorsys
 
-# ---------------------------------------------------------------- constants
+# --- constants ---
 PERIOD_MS = 256         # ms per clock cycle (one byte)
 CALIBRATE_MS = 5000     # all blocks on, lets the receiver find them
 LEAD_IN_MS = 2000       # black screen between calibration and data
@@ -19,14 +19,13 @@ FID_INSET = 0.02        # fiducial distance from the screen edge, fraction
 IMG_PATH = "img/cobblestone.png"
 SEND_SIZE = (16, 16)    # (width, height) the image is downscaled to
 WINDOW = "Monitor"
+# -----------------
 
 def hue_bgr(h_opencv, v=BLOCK_VALUE):
     r, g, b = colorsys.hsv_to_rgb(h_opencv / 180.0, 1.0, v)
     return (int(b * 255), int(g * 255), int(r * 255))
 
-# Index 0 is the clock, kept pure white: it only ever needs luminance, so
-# letting it clip is harmless and makes it the easiest block to recover.
-# The eight data bits then get the whole hue circle at 22.5 degree spacing.
+# keep index 0 pure white, the rest are hues at equal spacing apart from each other
 BLOCK_COLORS = [(255, 255, 255)] + [hue_bgr(int(i * 180 / 8)) for i in range(8)]
 
 class block: 
@@ -71,9 +70,9 @@ class monitor: # Removed 'def'
         BGR = cv2.mean(self.drawIMG)[:3]
         self.b, self.g, self.r = [int(x) for x in BGR]
 
-        # Four always-on white corner fiducials. The receiver fits a
-        # homography to these every frame, so it never has to search the
-        # background for the data blocks.
+        # four always-on white corner fiducials. the receiver fits a
+        # homography to these every frame, so it never picks anything
+        # up in the background as a block by accident.
         self.fidSize = int(self.blockSize * FID_SCALE)
         inset = int(min(self.height, self.width) * FID_INSET) + self.fidSize // 2
         self.fidCenters = [(inset, inset),
@@ -82,7 +81,7 @@ class monitor: # Removed 'def'
                            (inset, self.height - inset)]
         self.drawFiducials()
 
-        # Every block must sit wholly inside the fiducial quad, so the
+        # every block must sit wholly inside the fiducial quad, so the
         # receiver can reject anything outside it.
         edge = inset + self.fidSize // 2 + BLOCK_GAP + self.blockSize // 2
         self.minX, self.maxX = edge, self.width - edge
