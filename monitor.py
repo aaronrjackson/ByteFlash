@@ -4,6 +4,7 @@ import time
 import numpy as np 
 import tkinter as tk # for obtaining monitor resolution
 import colorsys
+import os
 
 # --- constants ---
 PERIOD_MS = 256         # ms per clock cycle (one byte)
@@ -151,11 +152,21 @@ class monitor: # Removed 'def'
         # loop through image bytes
         loopHeight, loopWidth = self.sendIMG.shape
 
+        ground_truth_dir = "ground_truth"
+        image_name = os.path.splitext(os.path.basename(IMG_PATH))[0]
+        ground_truth_file = open(
+        os.path.join(ground_truth_dir, f"{image_name}_ground_truth_file.txt"), "w"
+)
+
         for y in range(loopHeight):
             for x in range(loopWidth):
                 byte = self.sendIMG[y, x] 
                 byte_string = f"{byte:08b}"
                 print(byte_string)
+
+                # Write the same byte string to the text file
+                ground_truth_file.write(byte_string + "\n")
+
                 for bit_num in range(len(byte_string)+1):
                     if bit_num == 0:
                         self.blockList[bit_num].on()
@@ -173,7 +184,10 @@ class monitor: # Removed 'def'
                 cv2.imshow(WINDOW, self.drawIMG)
                 cv2.waitKey(1)
                 if self.hold(self.period/2): return
-        
+
+        # close ground truth file
+        ground_truth_file.close()
+
         self.allOff()
         cv2.imshow(WINDOW, self.drawIMG)
         cv2.waitKey(1)
